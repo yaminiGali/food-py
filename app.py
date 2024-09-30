@@ -33,7 +33,7 @@ CORS(app, resources={r"/uploads/": {"origins": "*"}})
 # MySQL Database connection parameters
 db_config = {
     'user': 'root',      # Update with your MySQL username
-    'password': 'bhaveshnt@21',  # Update with your MySQL password
+    'password': 'your password',  # Update with your MySQL password
     'host': 'localhost',
     'database': 'food_master'   # Ensure this database exists in MySQL
 }
