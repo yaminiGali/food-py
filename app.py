@@ -8,7 +8,7 @@ from flask_socketio import SocketIO, emit
 
 app = Flask(__name__)
 CORS(app)
-
+socketio = SocketIO(app)
 # socketio = SocketIO(app, cors_allowed_origins="*")
 
 
@@ -33,9 +33,9 @@ CORS(app, resources={r"/uploads/": {"origins": "*"}})
 # MySQL Database connection parameters
 db_config = {
     'user': 'root',      # Update with your MySQL username
-    'password': 'your password',  # Update with your MySQL password
+    'password': 'your_password',  # Update with your MySQL password
     'host': 'localhost',
-    'database': 'food_master'   # Ensure this database exists in MySQL
+    'database': 'sys'   # Ensure this database exists in MySQL
 }
 
 # CORS(app, resources={r"/*": {"origins": "http://localhost:4200"}}, supports_credentials=True)
@@ -71,12 +71,14 @@ def signup_user():
     
     try:
         cursor.execute(
-            "INSERT INTO community (username, email, password, phone_number, address, acc_type) VALUES (%s, %s, %s, %s, %s, %s)",
+            "INSERT INTO admin (username, email, password, phone_number, address, acc_type) VALUES (%s, %s, %s, %s, %s, %s)",
             (username, email, password, phone_number, address, acc_type))
         conn.commit()
         user_id=cursor.lastrowid
         if acc_type == 'resto':
             resto_in(user_id, username, email, phone_number, address)
+        elif acc_type == 'contributor':
+            contributor_in(user_id, username, email, phone_number, address)
         elif acc_type == 'customer':
             customer_in(user_id, username, email, phone_number, address)
         return jsonify({"message": "User registered successfully!"}), 201
@@ -92,13 +94,19 @@ def signup_user():
 def resto_in(user_id, username, email, phone_number, address):
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO resto_table (user_id, username, email, phone_number, address) VALUES (%s, %s, %s, %s, %s)", (user_id, username, email, phone_number, address))
+    cursor.execute("INSERT INTO restaurant_owner (user_id, username, email, phone_number, address) VALUES (%s, %s, %s, %s, %s)", (user_id, username, email, phone_number, address))
+    conn.commit()
+
+def contributor_in(user_id, username, email, phone_number, address):
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO contributor (user_id, username, email, phone_number, address) VALUES (%s, %s, %s, %s, %s)", (user_id, username, email, phone_number, address))
     conn.commit()
 
 def customer_in(user_id, username, email, phone_number, address):
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO customer_table (user_id, username, email, phone_number, address) VALUES (%s, %s, %s, %s, %s)", (user_id, username, email, phone_number, address))
+    cursor.execute("INSERT INTO customer (user_id, username, email, phone_number, address) VALUES (%s, %s, %s, %s, %s)", (user_id, username, email, phone_number, address))
     conn.commit()
 
 
@@ -108,7 +116,7 @@ def get_community():
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor(dictionary=True)
     try:
-        cursor.execute("SELECT * FROM community")
+        cursor.execute("SELECT * FROM admin")
         rows = cursor.fetchall()
         return jsonify(rows)
     except mysql.connector.Error as err:
@@ -125,7 +133,7 @@ def login():
     
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM community WHERE email = %s AND password = %s", (email, password))
+    cursor.execute("SELECT * FROM admin WHERE email = %s AND password = %s", (email, password))
     user = cursor.fetchone()
 
     if user:
@@ -137,17 +145,15 @@ def login():
 ##Route to store restaurants data
 @app.route('/api/restaurants', methods=['POST'])
 def add_restaurant():
-    filename = None  # Initialize filename to None
+    filename = None  
 
-    # Check if the file is present in the request
     if 'restaurant_logo' in request.files:
         file = request.files['restaurant_logo']
         if file:
             filename = secure_filename(file.filename)
             file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
     
-    # Process other form data
-    resto_id = request.form.get('resto_id')  # Assuming this is passed from the form
+    resto_id = request.form.get('resto_id') 
     restaurant_name = request.form.get('restaurant_name')
     cuisine_type = request.form.get('cuisine_type')
     opening_time = request.form.get('opening_time')
@@ -161,18 +167,17 @@ def add_restaurant():
     print("fileName",filename)
     restaurant_logo = f'http://127.0.0.1:5000/uploads/{filename}'
     print("restaurant_logo 22",restaurant_logo)
-    # Save to the database
+
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
     try:
 
         # Insert the restaurant details into the database
         cursor.execute('''
-            INSERT INTO restaurants (resto_id, restaurant_name, cuisine_type, opening_time, closing_time, rating, status, restaurant_logo, phone_number, address, average_rating, total_ratings_count)
+            INSERT INTO restaurant (resto_id, restaurant_name, cuisine_type, opening_time, closing_time, rating, status, restaurant_logo, phone_number, address, average_rating, total_ratings_count)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ''', (resto_id, restaurant_name, cuisine_type, opening_time, closing_time, rating, status, filename, phone_number, address, average_rating, total_ratings_count))
 
-        # Commit the changes
         conn.commit()
 
         return jsonify({'message': 'Upload successful', 'filename': filename}), 200
@@ -192,7 +197,7 @@ def delete_restaurant(restaurant_id):
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor()
 
-        cursor.execute('DELETE FROM restaurants WHERE restaurant_id = %s', (restaurant_id,))
+        cursor.execute('DELETE FROM restaurant WHERE restaurant_id = %s', (restaurant_id,))
         conn.commit()
 
         if cursor.rowcount > 0:
@@ -206,13 +211,13 @@ def delete_restaurant(restaurant_id):
         conn.close()
 
 
-###Route to fetch data from resto_table based on user_id
+###Route to fetch data from restaurant_owner based on user_id
 @app.route('/api/resto/<int:user_id>', methods=['GET'])
 def get_resto_by_id(user_id):
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM resto_table WHERE user_id = %s", (user_id,))
+        cursor.execute("SELECT * FROM restaurant_owner WHERE user_id = %s", (user_id,))
         owner = cursor.fetchone()
 
         if owner:
@@ -233,7 +238,7 @@ def get_allresto_by_id(resto_id):
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor(dictionary=True,buffered=True)
-        cursor.execute("SELECT * FROM restaurants WHERE resto_id = %s", (resto_id,))
+        cursor.execute("SELECT * FROM restaurant WHERE resto_id = %s", (resto_id,))
         restoDetails = cursor.fetchall()
 
         for restaurant in restoDetails:
@@ -259,7 +264,7 @@ def get_all_restos():
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor(dictionary=True,buffered=True)
-        cursor.execute("SELECT * FROM restaurants")
+        cursor.execute("SELECT * FROM restaurant")
         allRestoDetails = cursor.fetchall()
         for restaurant in allRestoDetails:
             for key, value in restaurant.items():
@@ -291,7 +296,7 @@ def get_restarant_by_id(restaurant_id):
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor(dictionary=True,buffered=True)
-        cursor.execute("SELECT * FROM restaurants WHERE restaurant_id = %s", (restaurant_id,))
+        cursor.execute("SELECT * FROM restaurant WHERE restaurant_id = %s", (restaurant_id,))
         restarantDetails = cursor.fetchall()
 
         for restaurant in restarantDetails:
@@ -311,21 +316,79 @@ def get_restarant_by_id(restaurant_id):
         conn.close()
 
 
-##Route to store food details
+###Route to fetch all Contributor details for user
+@app.route('/api/allContributorDetails', methods=['GET'])
+def get_all_contributors():
+    try:
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor(dictionary=True,buffered=True)
+        cursor.execute("SELECT * FROM contributor")
+        allContributorDetails = cursor.fetchall()
+        
+        for contributor in allContributorDetails:
+            for key, value in contributor.items():
+                if isinstance(value, timedelta):
+                    contributor[key] = str(value)
+
+        if  allContributorDetails:           
+            return jsonify(allContributorDetails), 200
+        else:
+            return jsonify({"message": "Contributor Details not found"}), 404
+
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+# Determine whether the source is a restaurant or contributor
 @app.route('/api/addFood', methods=['POST'])
-def add_food_details():
-    data = request.json
+def adding_food_details():
+    filename = None
+    if 'food_image' in request.files:
+        file = request.files['food_image']
+        if file:
+            filename = secure_filename(file.filename)
+            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+
+    food_name = request.form.get('food_name') 
+    food_description = request.form.get('food_description')
+    quantity_available = request.form.get('quantity_available')
+    food_type = request.form.get('food_type')
+    leftover_status = request.form.get('leftover_status')
+    expiry_time = request.form.get('expiry_time')
+    average_rating = request.form.get('average_rating', '0') 
+    total_ratings_count = request.form.get('total_ratings_count', '0')
+
+    if filename:
+        food_image = f'http://127.0.0.1:5000/uploads/{filename}'
+    else:
+        food_image = None
+    print("food_image", food_image)
+
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
     try:
-        query = """INSERT INTO restaurant_food_detail (restaurant_id, food_name, food_description, quantity_available, food_type, leftover_status, food_image_url,
-                expiry_time) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
-        cursor.execute(query, (data['restaurant_id'], data['food_name'], data['food_description'], 
-                            data['quantity_available'], data['food_type'], data['leftover_status'], data['food_image_url'], data['expiry_time']))
-        conn.commit()
-        conn.close()
-        return jsonify({"message": "Food Item added successfully"}), 201
+        if request.form.get('restaurant_id'):
+            source_id = request.form.get('restaurant_id')
+            query = """INSERT INTO food (food_name, food_description, quantity_available, food_type, leftover_status, 
+                        food_image, restaurant_id, expiry_time, average_rating, total_ratings_count) 
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+            cursor.execute(query, (food_name, food_description, quantity_available, food_type, leftover_status, 
+                                food_image, source_id, expiry_time, average_rating, total_ratings_count))
+        elif request.form.get('contributor_id'):
+            source_id = request.form.get('contributor_id')
+            query = """INSERT INTO food (food_name, food_description, quantity_available, food_type, leftover_status, 
+                        food_image, contributor_id, expiry_time, average_rating, total_ratings_count) 
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+            cursor.execute(query, (food_name, food_description, quantity_available, food_type, leftover_status, 
+                                food_image, source_id, expiry_time, average_rating, total_ratings_count))
+        else:
+            return jsonify({"error": "Either restaurant_id or contributor_id must be provided"}), 400
 
+        conn.commit()
+        return jsonify({"message": "Food Item added successfully"}), 201
+    
     except mysql.connector.Error as err:
         return jsonify({"error": str(err)}), 400
     
@@ -333,13 +396,49 @@ def add_food_details():
         cursor.close()
         conn.close()
 
-###Route to fetch all food items list based on restaurant_id
-@app.route('/api/foodList/<int:restaurant_id>', methods=['GET'])
-def get_food_by_id(restaurant_id):
+
+@app.route('/api/getFoodDetails', methods=['GET'])
+def get_all_food_details():
+    restaurant_id = request.args.get('restaurant_id')
+    contributor_id = request.args.get('contributor_id')
+
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
     try:
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor(dictionary=True,buffered=True)
-        cursor.execute("SELECT * FROM restaurant_food_detail WHERE restaurant_id = %s", (restaurant_id,))
+        if restaurant_id:
+            query = """SELECT * FROM food WHERE restaurant_id = %s"""
+            cursor.execute(query, (restaurant_id,))
+        elif contributor_id:
+            query = """SELECT * FROM food WHERE contributor_id = %s"""
+            cursor.execute(query, (contributor_id,))
+        else:
+            return jsonify({"error": "Please provide either restaurant_id or contributor_id"}), 400
+
+        food_details = cursor.fetchall()
+        return jsonify(food_details), 200
+
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+# ###Route to fetch all food items list based on restaurant_id
+@app.route('/api/foodList', methods=['GET'])
+def get_food_by_iddd():
+    restaurant_id = request.args.get('restaurant_id')
+    contributor_id = request.args.get('contributor_id')
+
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True,buffered=True)
+    try:
+        if restaurant_id:
+            query = """SELECT * FROM food WHERE restaurant_id = %s"""
+            cursor.execute(query, (restaurant_id,))
+        elif contributor_id:
+            query = """SELECT * FROM food WHERE contributor_id = %s"""
+            cursor.execute(query, (contributor_id,))
         foodList = cursor.fetchall()
 
         for food in foodList:
@@ -358,22 +457,91 @@ def get_food_by_id(restaurant_id):
         cursor.close()
         conn.close()
 
-##Route to update food details by editing
-@app.route('/api/updateFood/<int:food_id>', methods=['PUT','OPTIONS'])
+
+@app.route('/api/getFoodItems', methods=['GET'])
+def get_food_items():
+    restaurant_id = request.args.get('restaurant_id')
+    contributor_id = request.args.get('contributor_id')
+
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
+    try:
+        if restaurant_id:
+            query = """SELECT * FROM food WHERE restaurant_id = %s"""
+            cursor.execute(query, (restaurant_id,))
+        elif contributor_id:
+            query = """SELECT * FROM food WHERE contributor_id = %s"""
+            cursor.execute(query, (contributor_id,))
+        else:
+            return jsonify({"error": "restaurant_id or contributor_id is required"}), 400
+
+        food_items = cursor.fetchall()
+
+        if food_items:
+            return jsonify(food_items), 200
+        else:
+            return jsonify({"message": "No food items found"}), 404
+
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+
+@app.route('/api/updateFood/<int:food_id>', methods=['PUT', 'OPTIONS'])
 def update_food(food_id):
     if request.method == 'OPTIONS':
         return '', 200
-    data = request.json
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
     try:
-        query = """UPDATE restaurant_food_detail
-        SET restaurant_id = %s, food_name = %s, food_description = %s, quantity_available = %s, food_type = %s, leftover_status = %s, food_image_url = %s, expiry_time = %s
-        WHERE food_id = %s;"""
-        cursor.execute(query, (data['restaurant_id'], data['food_name'], data['food_description'], 
-                            data['quantity_available'], data['food_type'], data['leftover_status'], data['food_image_url'], data['expiry_time'],food_id))
+        filename = None
+
+        if 'food_image' in request.files:
+            file = request.files['food_image']
+            if file:
+                filename = secure_filename(file.filename)
+                file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+
+        food_name = request.form.get('food_name') 
+        food_description = request.form.get('food_description')
+        quantity_available = request.form.get('quantity_available')
+        food_type = request.form.get('food_type')
+        leftover_status = request.form.get('leftover_status')
+        expiry_time = request.form.get('expiry_time')
+
+        food_image = f'http://127.0.0.1:5000/uploads/{filename}' if filename else request.form.get('food_image')
+
+        # Check which ID is provided (restaurant_id or contributor_id)
+        restaurant_id = request.form.get('restaurant_id')
+        contributor_id = request.form.get('contributor_id')
+        
+        # Build the query
+        query = """UPDATE food
+                   SET food_name = %s, food_description = %s, quantity_available = %s, food_type = %s, leftover_status = %s, 
+                       food_image = %s, expiry_time = %s, updated_at = NOW()"""
+        
+        params = [food_name, food_description, quantity_available, food_type, leftover_status, food_image, expiry_time]
+
+        # Conditionally update either restaurant_id or contributor_id
+        if restaurant_id:
+            query += ", restaurant_id = %s"
+            params.append(restaurant_id)
+        elif contributor_id:
+            query += ", contributor_id = %s"
+            params.append(contributor_id)
+
+        # Add the WHERE clause to update the correct food item
+        query += " WHERE food_id = %s;"
+        params.append(food_id)
+        
+        # Execute the query
+        cursor.execute(query, params)
         conn.commit()
 
+        # Check if any rows were affected
         if cursor.rowcount == 0:
             return jsonify({'message': 'Food item not found!'}), 404
         return jsonify({'message': 'Food Details updated!'}), 200
@@ -393,7 +561,8 @@ def delete_foodItem(food_id):
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor()
 
-        cursor.execute('DELETE FROM restaurant_food_detail WHERE food_id = %s', (food_id,))
+        # Delete query, ensuring it targets the correct food_id in food table
+        cursor.execute('DELETE FROM food WHERE food_id = %s', (food_id,))
         conn.commit()
 
         if cursor.rowcount > 0:
@@ -407,13 +576,34 @@ def delete_foodItem(food_id):
         conn.close()
 
 
-###Route to fetch data from resto_table based on user_id
+#Route to fetch 
+@app.route('/api/contributor/<int:user_id>', methods=['GET'])
+def get_contributor_by_id(user_id):
+    try:
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor(dictionary=True,buffered=True)
+        cursor.execute("SELECT * FROM contributor WHERE user_id = %s", (user_id,))
+        owner = cursor.fetchall()
+
+        if owner:
+            return jsonify(owner), 200
+        else:
+            return jsonify({"message": "Contributor not found"}), 404
+
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+###Route to fetch data from customer based on user_id
 @app.route('/api/customer/<int:cust_id>', methods=['GET'])
 def get_user_by_id(cust_id):
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM customer_table WHERE user_id = %s", (cust_id,))
+        cursor.execute("SELECT * FROM customer WHERE user_id = %s", (cust_id,))
         customer = cursor.fetchone()
 
         if customer:
@@ -427,6 +617,8 @@ def get_user_by_id(cust_id):
         cursor.close()
         conn.close()
 
+
+##Route to place order by customer
 @app.route('/api/placeOrder', methods=['POST', 'OPTIONS'])
 def place_order():
     if request.method == 'OPTIONS':
@@ -445,7 +637,7 @@ def place_order():
         order_id = cursor.lastrowid  # Get the newly created order ID
         print("New order created with order_id:", order_id)
 
-        # Step 2: Loop through each food item and insert into order_food_items
+        # Step 2: Loop through each food item and insert into order_food_item
         for item in cart_items:
             food_id = item['food_id']
             quantity_ordered = item['order_quantity']
@@ -454,7 +646,7 @@ def place_order():
                 print("Processing food_id:", food_id)
                 print("Requested quantity:", quantity_ordered)
 
-                cursor.execute("SELECT quantity_available FROM restaurant_food_detail WHERE food_id = %s FOR UPDATE", (food_id,))
+                cursor.execute("SELECT quantity_available FROM food WHERE food_id = %s FOR UPDATE", (food_id,))
                 result = cursor.fetchone()
 
                 if result is None:
@@ -466,14 +658,14 @@ def place_order():
                 if quantity_ordered > quantity_available:
                     return jsonify({"error": f"Not enough quantity for food_id {food_id}"}), 400
 
-                # Insert the food item into order_food_items table
-                cursor.execute("INSERT INTO order_food_items (order_id, food_id, quantity_ordered) VALUES (%s, %s, %s)", (order_id, food_id, quantity_ordered))
+                # Insert the food item into order_food_item table
+                cursor.execute("INSERT INTO order_food_item (order_id, food_id, quantity_ordered) VALUES (%s, %s, %s)", (order_id, food_id, quantity_ordered))
 
-                # Update the quantity_available in restaurant_food_detail
-                cursor.execute("UPDATE restaurant_food_detail SET quantity_available = quantity_available - %s WHERE food_id = %s", (quantity_ordered, food_id))
+                # Update the quantity_available in food_detail
+                cursor.execute("UPDATE food SET quantity_available = quantity_available - %s WHERE food_id = %s", (quantity_ordered, food_id))
 
                 # If quantity_available reaches 0, mark as Not Available
-                cursor.execute("UPDATE restaurant_food_detail SET leftover_status = 'Not Available' WHERE food_id = %s AND quantity_available = 0", (food_id,))
+                cursor.execute("UPDATE food SET leftover_status = 'Not Available' WHERE food_id = %s AND quantity_available = 0", (food_id,))
 
             except Exception as e:
                 print(f"An error occurred while processing food_id {food_id}: {str(e)}")
