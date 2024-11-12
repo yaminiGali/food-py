@@ -9,11 +9,6 @@ from flask_socketio import SocketIO, emit
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app)
-# socketio = SocketIO(app, cors_allowed_origins="*")
-
-
-# UPLOAD_FOLDER = 'uploads/'  # Folder to store uploaded images
-# app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 UPLOAD_FOLDER = 'uploads/'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -38,28 +33,14 @@ db_config = {
     'database': 'sys'   # Ensure this database exists in MySQL
 }
 
-# CORS(app, resources={r"/*": {"origins": "http://localhost:4200"}}, supports_credentials=True)
-# # Initialize the MySQL Database
-# def init_db():
-#     conn = mysql.connector.connect(**db_config)
-#     cursor = conn.cursor()
-
-#     # Create a table if it does not exist
-#     cursor.execute('''
-#         CREATE TABLE IF NOT EXISTS user (
-#             id INT AUTO_INCREMENT PRIMARY KEY,
-#             name VARCHAR(255) NOT NULL,
-#             email VARCHAR(255) NOT NULL
-#         );
-#     ''')
-#     conn.commit()
-#     conn.close()
 
 ######## Route to add user data
 @app.route('/api/signup/community', methods=['POST'])
 def signup_user():
     data = request.json
     username = data.get('username')
+    firstname = data.get('firstname')
+    lastname = data.get('lastname')
     email = data.get('email')
     password = data.get('password')
     phone_number = data.get('phone_number')
@@ -71,16 +52,16 @@ def signup_user():
     
     try:
         cursor.execute(
-            "INSERT INTO admin (username, email, password, phone_number, address, acc_type) VALUES (%s, %s, %s, %s, %s, %s)",
-            (username, email, password, phone_number, address, acc_type))
+            "INSERT INTO admin (username, firstname, lastname, email, password, phone_number, address, acc_type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (username, firstname, lastname, email, password, phone_number, address, acc_type))
         conn.commit()
         user_id=cursor.lastrowid
         if acc_type == 'resto':
-            resto_in(user_id, username, email, phone_number, address)
+            resto_in(user_id, username, firstname, lastname,email, phone_number, address)
         elif acc_type == 'contributor':
-            contributor_in(user_id, username, email, phone_number, address)
+            contributor_in(user_id, username, firstname, lastname, email, phone_number, address)
         elif acc_type == 'customer':
-            customer_in(user_id, username, email, phone_number, address)
+            customer_in(user_id, username, firstname, lastname, email, phone_number, address)
         return jsonify({"message": "User registered successfully!"}), 201
 
     except mysql.connector.Error as err:
@@ -91,22 +72,22 @@ def signup_user():
         conn.close()
     return redirect('/')
     
-def resto_in(user_id, username, email, phone_number, address):
+def resto_in(user_id, username, firstname, lastname, email, phone_number, address):
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO restaurant_owner (user_id, username, email, phone_number, address) VALUES (%s, %s, %s, %s, %s)", (user_id, username, email, phone_number, address))
+    cursor.execute("INSERT INTO restaurant_owner (user_id, username, firstname, lastname, email, phone_number, address) VALUES (%s, %s, %s, %s, %s, %s, %s)", (user_id, username, firstname, lastname, email, phone_number, address))
     conn.commit()
 
-def contributor_in(user_id, username, email, phone_number, address):
+def contributor_in(user_id, username, firstname, lastname, email, phone_number, address):
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO contributor (user_id, username, email, phone_number, address) VALUES (%s, %s, %s, %s, %s)", (user_id, username, email, phone_number, address))
+    cursor.execute("INSERT INTO contributor (user_id, username, firstname, lastname, email, phone_number, address) VALUES (%s, %s, %s, %s, %s, %s, %s)", (user_id, username, firstname, lastname, email, phone_number, address))
     conn.commit()
 
-def customer_in(user_id, username, email, phone_number, address):
+def customer_in(user_id, username, firstname, lastname, email, phone_number, address):
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO customer (user_id, username, email, phone_number, address) VALUES (%s, %s, %s, %s, %s)", (user_id, username, email, phone_number, address))
+    cursor.execute("INSERT INTO customer (user_id, username, firstname, lastname, email, phone_number, address) VALUES (%s, %s, %s, %s, %s, %s, %s)", (user_id, username, firstname, lastname, email, phone_number, address))
     conn.commit()
 
 
@@ -160,10 +141,10 @@ def add_restaurant():
     closing_time = request.form.get('closing_time')
     phone_number = request.form.get('phone_number')
     address = request.form.get('address')
-    rating = request.form.get('rating', '0')  # Default to '0' if not provided
-    status = request.form.get('status', 'open')  # Default to 'open' if not provided
-    average_rating = request.form.get('average_rating', '0')  # Default to '0'
-    total_ratings_count = request.form.get('total_ratings_count', '0')  # Default to '0'
+    rating = request.form.get('rating', '0')  
+    status = request.form.get('status', 'open') 
+    average_rating = request.form.get('average_rating', '0') 
+    total_ratings_count = request.form.get('total_ratings_count', '0') 
     print("fileName",filename)
     restaurant_logo = f'http://127.0.0.1:5000/uploads/{filename}'
     print("restaurant_logo 22",restaurant_logo)
@@ -172,7 +153,6 @@ def add_restaurant():
     cursor = conn.cursor()
     try:
 
-        # Insert the restaurant details into the database
         cursor.execute('''
             INSERT INTO restaurant (resto_id, restaurant_name, cuisine_type, opening_time, closing_time, rating, status, restaurant_logo, phone_number, address, average_rating, total_ratings_count)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -514,18 +494,15 @@ def update_food(food_id):
 
         food_image = f'http://127.0.0.1:5000/uploads/{filename}' if filename else request.form.get('food_image')
 
-        # Check which ID is provided (restaurant_id or contributor_id)
         restaurant_id = request.form.get('restaurant_id')
         contributor_id = request.form.get('contributor_id')
         
-        # Build the query
         query = """UPDATE food
                    SET food_name = %s, food_description = %s, quantity_available = %s, food_type = %s, leftover_status = %s, 
                        food_image = %s, expiry_time = %s, updated_at = NOW()"""
         
         params = [food_name, food_description, quantity_available, food_type, leftover_status, food_image, expiry_time]
 
-        # Conditionally update either restaurant_id or contributor_id
         if restaurant_id:
             query += ", restaurant_id = %s"
             params.append(restaurant_id)
@@ -533,15 +510,12 @@ def update_food(food_id):
             query += ", contributor_id = %s"
             params.append(contributor_id)
 
-        # Add the WHERE clause to update the correct food item
         query += " WHERE food_id = %s;"
         params.append(food_id)
-        
-        # Execute the query
+
         cursor.execute(query, params)
         conn.commit()
 
-        # Check if any rows were affected
         if cursor.rowcount == 0:
             return jsonify({'message': 'Food item not found!'}), 404
         return jsonify({'message': 'Food Details updated!'}), 200
@@ -560,8 +534,6 @@ def delete_foodItem(food_id):
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor()
-
-        # Delete query, ensuring it targets the correct food_id in food table
         cursor.execute('DELETE FROM food WHERE food_id = %s', (food_id,))
         conn.commit()
 
@@ -632,12 +604,10 @@ def place_order():
     cursor = connection.cursor(dictionary=True)
 
     try:
-        # Step 1: Insert into order_details
-        cursor.execute("INSERT INTO order_details (customer_id) VALUES (%s)", (customer_id,))
-        order_id = cursor.lastrowid  # Get the newly created order ID
+        cursor.execute("INSERT INTO `order` (customer_id) VALUES (%s)", (customer_id,))
+        order_id = cursor.lastrowid 
         print("New order created with order_id:", order_id)
 
-        # Step 2: Loop through each food item and insert into order_food_item
         for item in cart_items:
             food_id = item['food_id']
             quantity_ordered = item['order_quantity']
@@ -658,13 +628,10 @@ def place_order():
                 if quantity_ordered > quantity_available:
                     return jsonify({"error": f"Not enough quantity for food_id {food_id}"}), 400
 
-                # Insert the food item into order_food_item table
-                cursor.execute("INSERT INTO order_food_item (order_id, food_id, quantity_ordered) VALUES (%s, %s, %s)", (order_id, food_id, quantity_ordered))
+                cursor.execute("INSERT INTO order_detail (order_id, food_id, quantity_ordered) VALUES (%s, %s, %s)", (order_id, food_id, quantity_ordered))
 
-                # Update the quantity_available in food_detail
                 cursor.execute("UPDATE food SET quantity_available = quantity_available - %s WHERE food_id = %s", (quantity_ordered, food_id))
 
-                # If quantity_available reaches 0, mark as Not Available
                 cursor.execute("UPDATE food SET leftover_status = 'Not Available' WHERE food_id = %s AND quantity_available = 0", (food_id,))
 
             except Exception as e:
@@ -692,5 +659,4 @@ def uploaded_file(filename):
     return send_from_directory('uploads', filename)
 
 if __name__ == '__main__':
-    # init_db()  # Initialize the database when the app starts
     app.run(debug=True)
