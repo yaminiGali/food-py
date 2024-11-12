@@ -28,9 +28,9 @@ CORS(app, resources={r"/uploads/": {"origins": "*"}})
 # MySQL Database connection parameters
 db_config = {
     'user': 'root',      # Update with your MySQL username
-    'password': 'your_password',  # Update with your MySQL password
+    'password': 'bhaveshnt@21',  # Update with your MySQL password
     'host': 'localhost',
-    'database': 'sys'   # Ensure this database exists in MySQL
+    'database': 'food'   # Ensure this database exists in MySQL
 }
 
 
@@ -429,7 +429,7 @@ def get_food_by_iddd():
         if  foodList:           
             return jsonify(foodList), 200
         else:
-            return jsonify({"message": "Food List not found"}), 404
+            return jsonify(foodList), 200
 
     except mysql.connector.Error as err:
         return jsonify({"error": str(err)}), 500
@@ -653,6 +653,30 @@ def place_order():
         cursor.close()
         connection.close()
 
+
+@app.route('/api/orderHistory/<int:customer_id>', methods=['GET'])
+def get_order_history(customer_id):
+    try:
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor(dictionary=True)
+        query = """
+            SELECT o.order_id, o.order_date, o.order_status, od.quantity_ordered, f.food_id, f.food_name, f.food_image
+            FROM `order` o
+            JOIN `order_detail` od ON o.order_id = od.order_id
+            JOIN `food` f ON od.food_id = f.food_id
+            
+            WHERE o.customer_id = %s;
+        """
+        cursor.execute(query, (customer_id,))
+        order_history = cursor.fetchall()
+        conn.close()
+        return jsonify(order_history)
+
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.route('/uploads/<filename>', methods=['GET'])
 def uploaded_file(filename):
