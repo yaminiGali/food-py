@@ -651,11 +651,11 @@ def get_order_history(customer_id):
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor(dictionary=True)
-        query = """SELECT o.order_id, o.order_date, o.order_status, od.quantity_ordered, f.food_id, f.food_name, f.food_image
-            FROM `order` o
-            JOIN `order_detail` od ON o.order_id = od.order_id
-            JOIN `food` f ON od.food_id = f.food_id
-            WHERE o.customer_id = %s;"""
+        query = """SELECT o.order_id, o.order_date, o.order_status, od.quantity_ordered, od.rating, f.food_id, f.food_name, f.food_image, f.average_rating
+                    FROM `order` o
+                    JOIN `order_detail` od ON o.order_id = od.order_id
+                    JOIN `food` f ON od.food_id = f.food_id
+                    WHERE o.customer_id = %s;"""
         cursor.execute(query, (customer_id,))
         order_history = cursor.fetchall()
         conn.close()
@@ -722,6 +722,87 @@ def update_order_status():
     finally:
         cursor.close()
         connection.close()
+
+@app.route('/api/addRating', methods=['POST','OPTIONS'])
+def add_rating():
+    if request.method == 'OPTIONS':
+        return '', 200
+    connection = mysql.connector.connect(**db_config)
+    cursor = connection.cursor()
+    try:
+        data = request.json
+        order_id = data['orderId']
+        food_id = data['foodId']
+        rating = data['rating']
+
+        if not (1 <= rating <= 5):
+            return jsonify({"error": "Rating must be between 1 and 5"}), 400
+
+        cursor.execute("""UPDATE order_detail
+            SET rating = %s
+            WHERE order_id = %s AND food_id = %s""", (rating, order_id, food_id))
+
+        if cursor.rowcount == 0:
+            return jsonify({"error": "No matching order found for this food item"}), 404
+
+        cursor.execute("""SELECT average_rating, total_ratings_count 
+            FROM food 
+            WHERE food_id = %s""", (food_id,))
+        
+        food = cursor.fetchone()
+
+        if not food:
+            return jsonify({"error": "Food item not found"}), 404
+
+        current_avg_rating = food[0]
+        current_total_ratings_count = food[1]
+
+        new_total_ratings_count = current_total_ratings_count + 1
+        new_avg_rating = (current_avg_rating * current_total_ratings_count + rating) / new_total_ratings_count
+
+        cursor.execute("""UPDATE food
+            SET average_rating = %s, total_ratings_count = %s
+            WHERE food_id = %s""", (new_avg_rating, new_total_ratings_count, food_id))
+
+        cursor.execute("""SELECT restaurant_id 
+            FROM food 
+            WHERE food_id = %s""", (food_id,))
+        
+        restaurant = cursor.fetchone()
+
+        if restaurant:
+            restaurant_id = restaurant[0]
+
+            cursor.execute("""SELECT AVG(average_rating) AS restaurant_rating
+                FROM food
+                WHERE restaurant_id = %s""", (restaurant_id,))
+
+            restaurant_rating = cursor.fetchone()
+
+            if restaurant_rating and restaurant_rating[0] is not None:
+                restaurant_rating = restaurant_rating[0]
+            else:
+                restaurant_rating = 0.00
+
+            cursor.execute("""UPDATE restaurant
+                SET average_rating = %s
+                WHERE restaurant_id = %s""", (restaurant_rating, restaurant_id))
+
+        connection.commit()
+
+        return jsonify({
+            "message": "Rating added successfully",
+            "food_average_rating": round(new_avg_rating, 2),
+            "food_total_ratings_count": new_total_ratings_count,
+            "restaurant_average_rating": round(restaurant_rating, 2) if restaurant else None
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        if 'connection' in locals():
+            connection.close()
 
 @socketio.on('join')
 def on_join(data):
