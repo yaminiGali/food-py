@@ -4,11 +4,12 @@ from flask import Flask, render_template, request, redirect, jsonify, send_from_
 from flask_cors import CORS
 from werkzeug.utils import secure_filename 
 from datetime import timedelta
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, join_room
 
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 UPLOAD_FOLDER = 'uploads/'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -591,82 +592,70 @@ def get_user_by_id(cust_id):
 
 
 ##Route to place order by customer
-@app.route('/api/placeOrder', methods=['POST', 'OPTIONS'])
+@app.route('/api/placeOrder', methods=['POST'])
 def place_order():
-    if request.method == 'OPTIONS':
-        return 'Options', 200
-
     data = request.json
     customer_id = data.get('customer_id')
     cart_items = data.get('cartItems')
+    restaurant_id = data.get('restaurant_id')
 
     connection = mysql.connector.connect(**db_config)
     cursor = connection.cursor(dictionary=True)
 
     try:
         cursor.execute("INSERT INTO `order` (customer_id) VALUES (%s)", (customer_id,))
-        order_id = cursor.lastrowid 
-        print("New order created with order_id:", order_id)
+        order_id = cursor.lastrowid
+
 
         for item in cart_items:
             food_id = item['food_id']
             quantity_ordered = item['order_quantity']
 
-            try:
-                print("Processing food_id:", food_id)
-                print("Requested quantity:", quantity_ordered)
+            cursor.execute("SELECT quantity_available FROM food WHERE food_id = %s FOR UPDATE", (food_id,))
+            result = cursor.fetchone()
+            if not result or result['quantity_available'] < quantity_ordered:
+                return jsonify({"error": f"Insufficient stock for food ID {food_id}"}), 400
 
-                cursor.execute("SELECT quantity_available FROM food WHERE food_id = %s FOR UPDATE", (food_id,))
-                result = cursor.fetchone()
+            cursor.execute("INSERT INTO order_detail (order_id, food_id, quantity_ordered) VALUES (%s, %s, %s)",(order_id, food_id, quantity_ordered))
+            cursor.execute("UPDATE food SET quantity_available = quantity_available - %s WHERE food_id = %s",(quantity_ordered, food_id))
+        connection.commit()
+        # Get customer details for notification
+        cursor.execute("SELECT firstname, lastname, email FROM customer WHERE customer_id = %s", (customer_id,))
+        customer = cursor.fetchone()
 
-                if result is None:
-                    return jsonify({"error": f"Food item with id {food_id} not found"}), 404
+        if not customer:
+            return jsonify({"error": "Customer not found"}), 404
 
-                quantity_available = result['quantity_available']
-                print("Available quantity:", quantity_available)
-
-                if quantity_ordered > quantity_available:
-                    return jsonify({"error": f"Not enough quantity for food_id {food_id}"}), 400
-
-                cursor.execute("INSERT INTO order_detail (order_id, food_id, quantity_ordered) VALUES (%s, %s, %s)", (order_id, food_id, quantity_ordered))
-
-                cursor.execute("UPDATE food SET quantity_available = quantity_available - %s WHERE food_id = %s", (quantity_ordered, food_id))
-
-                cursor.execute("UPDATE food SET leftover_status = 'Not Available' WHERE food_id = %s AND quantity_available = 0", (food_id,))
-
-            except Exception as e:
-                print(f"An error occurred while processing food_id {food_id}: {str(e)}")
-                connection.rollback()
-                return jsonify({"error": "An error occurred while placing the order."}), 500
-
-        connection.commit() 
-        socketio.emit('new_order', {'order_data': data})
+        # Send real-time notification to the restaurant
+        socketio.emit(f'new_order_{restaurant_id}', {
+            "message": "New order received",
+            "order_id": order_id,
+            "customer": {
+                "firstname": customer['firstname'],
+                "lastname": customer['lastname'],
+                "email": customer['email'],
+            },
+            "cart_items": cart_items
+        })
 
         return jsonify({"message": "Order placed successfully"}), 200
-
     except Exception as e:
         connection.rollback()
-        print("An error occurred while placing the order:", str(e))
         return jsonify({"error": str(e)}), 500
-
     finally:
         cursor.close()
         connection.close()
-
 
 @app.route('/api/orderHistory/<int:customer_id>', methods=['GET'])
 def get_order_history(customer_id):
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor(dictionary=True)
-        query = """
-            SELECT o.order_id, o.order_date, o.order_status, od.quantity_ordered, f.food_id, f.food_name, f.food_image
+        query = """SELECT o.order_id, o.order_date, o.order_status, od.quantity_ordered, f.food_id, f.food_name, f.food_image
             FROM `order` o
             JOIN `order_detail` od ON o.order_id = od.order_id
             JOIN `food` f ON od.food_id = f.food_id
-            
-            WHERE o.customer_id = %s;
-        """
+            WHERE o.customer_id = %s;"""
         cursor.execute(query, (customer_id,))
         order_history = cursor.fetchall()
         conn.close()
@@ -678,9 +667,73 @@ def get_order_history(customer_id):
         cursor.close()
         conn.close()
 
+@app.route('/api/viewOrder', methods=['GET'])
+def view_order():
+    restaurant_id = request.args.get('restaurant_id')
+    if not restaurant_id:
+        return jsonify({"error": "restaurant_id is required"}), 400
+
+    connection = mysql.connector.connect(**db_config)
+    cursor = connection.cursor(dictionary=True)
+
+    try:
+        query = """SELECT o.order_id, o.order_date, o.order_status, c.firstname, c.lastname, c.email, od.food_id, f.food_name, od.quantity_ordered, f.food_image
+            FROM `order` o
+            JOIN `order_detail` od ON o.order_id = od.order_id
+            JOIN `food` f ON od.food_id = f.food_id
+            JOIN `customer` c ON o.customer_id = c.customer_id
+            WHERE f.restaurant_id = %s"""
+        cursor.execute(query, (restaurant_id,))
+        orders = cursor.fetchall()
+
+        return jsonify({"orders": orders}), 200
+
+    except Exception as e:
+        print("Error fetching orders:", str(e))
+        return jsonify({"error": "An error occurred while fetching orders."}), 500
+
+    finally:
+        cursor.close()
+        connection.close()
+
+@app.route('/api/updateOrderStatus', methods=['PUT'])
+def update_order_status():
+    data = request.json
+    order_id = data.get('order_id')
+    new_status = data.get('order_status')
+
+    if not order_id or new_status not in ['Pending', 'Completed', 'Cancelled']:
+        return jsonify({'error': 'Invalid order_id or order_status'}), 400
+
+    connection = mysql.connector.connect(**db_config)
+    cursor = connection.cursor()
+
+    try:
+        query = "UPDATE `order` SET order_status = %s WHERE order_id = %s"
+        cursor.execute(query, (new_status, order_id))
+        connection.commit()
+
+        if cursor.rowcount == 0:
+            return jsonify({'error': 'Order ID not found'}), 404
+
+        return jsonify({'message': 'Order status updated successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+        connection.close()
+
+@socketio.on('join')
+def on_join(data):
+    room = data
+    join_room(room)
+    print(f"Joined room: {room}")
+
+
 @app.route('/uploads/<filename>', methods=['GET'])
 def uploaded_file(filename):
     return send_from_directory('uploads', filename)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # app.run(debug=True)
+    socketio.run(app, debug=True, port=5000)
