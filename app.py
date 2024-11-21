@@ -670,20 +670,31 @@ def get_order_history(customer_id):
 @app.route('/api/viewOrder', methods=['GET'])
 def view_order():
     restaurant_id = request.args.get('restaurant_id')
-    if not restaurant_id:
-        return jsonify({"error": "restaurant_id is required"}), 400
+    contributor_id = request.args.get('contributor_id')
+
+    if not restaurant_id and not contributor_id:
+        return jsonify({"error": "Either restaurant_id or contributor_id is required."}), 400
 
     connection = mysql.connector.connect(**db_config)
     cursor = connection.cursor(dictionary=True)
 
     try:
-        query = """SELECT o.order_id, o.order_date, o.order_status, c.firstname, c.lastname, c.email, od.food_id, f.food_name, od.quantity_ordered, f.food_image
-            FROM `order` o
-            JOIN `order_detail` od ON o.order_id = od.order_id
-            JOIN `food` f ON od.food_id = f.food_id
-            JOIN `customer` c ON o.customer_id = c.customer_id
-            WHERE f.restaurant_id = %s"""
-        cursor.execute(query, (restaurant_id,))
+        if restaurant_id:
+            query = """SELECT o.order_id, o.order_date, o.order_status, c.firstname, c.lastname, c.email, od.food_id, f.food_name, od.quantity_ordered, f.food_image
+                FROM `order` o
+                JOIN `order_detail` od ON o.order_id = od.order_id
+                JOIN `food` f ON od.food_id = f.food_id
+                JOIN `customer` c ON o.customer_id = c.customer_id
+                WHERE f.restaurant_id = %s"""
+            cursor.execute(query, (restaurant_id,))
+        elif contributor_id:
+            query = """SELECT o.order_id, o.order_date, o.order_status, c.firstname, c.lastname, c.email, od.food_id, f.food_name, od.quantity_ordered, f.food_image
+                FROM `order` o
+                JOIN `order_detail` od ON o.order_id = od.order_id
+                JOIN `food` f ON od.food_id = f.food_id
+                JOIN `customer` c ON o.customer_id = c.customer_id
+                WHERE f.contributor_id = %s"""
+            cursor.execute(query, (contributor_id,))
         orders = cursor.fetchall()
 
         return jsonify({"orders": orders}), 200
