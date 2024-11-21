@@ -598,6 +598,7 @@ def place_order():
     customer_id = data.get('customer_id')
     cart_items = data.get('cartItems')
     restaurant_id = data.get('restaurant_id')
+    contributor_id = data.get('contributor_id')
 
     connection = mysql.connector.connect(**db_config)
     cursor = connection.cursor(dictionary=True)
@@ -627,16 +628,30 @@ def place_order():
             return jsonify({"error": "Customer not found"}), 404
 
         # Send real-time notification to the restaurant
-        socketio.emit(f'new_order_{restaurant_id}', {
-            "message": "New order received",
-            "order_id": order_id,
-            "customer": {
-                "firstname": customer['firstname'],
-                "lastname": customer['lastname'],
-                "email": customer['email'],
-            },
-            "cart_items": cart_items
-        })
+        if restaurant_id:
+            print("restaurant_id::",restaurant_id)
+            socketio.emit(f'new_order_{restaurant_id}', {
+                "message": "New order received",
+                "order_id": order_id,
+                "customer": {
+                    "firstname": customer['firstname'],
+                    "lastname": customer['lastname'],
+                    "email": customer['email'],
+                },
+                "cart_items": cart_items
+            })
+        if contributor_id:
+            print("contributor_id::",contributor_id)
+            socketio.emit(f'new_order_{contributor_id}', {
+                "message": "New order received",
+                "order_id": order_id,
+                "customer": {
+                    "firstname": customer['firstname'],
+                    "lastname": customer['lastname'],
+                    "email": customer['email'],
+                },
+                "cart_items": cart_items
+            })
 
         return jsonify({"message": "Order placed successfully"}), 200
     except Exception as e:
