@@ -1,10 +1,14 @@
 import os
+import time
+import schedule
 import mysql.connector
 from flask import Flask, render_template, request, redirect, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename 
 from datetime import timedelta
 from flask_socketio import SocketIO, emit, join_room
+from threading import Thread
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 CORS(app)
@@ -29,7 +33,7 @@ CORS(app, resources={r"/uploads/": {"origins": "*"}})
 # MySQL Database connection parameters
 db_config = {
     'user': 'root',      # Update with your MySQL username
-    'password': 'bhaveshnt@21',  # Update with your MySQL password
+    'password': 'your_password',  # Update with your MySQL password
     'host': 'localhost',
     'database': 'food'   # Ensure this database exists in MySQL
 }
@@ -57,7 +61,7 @@ def signup_user():
             (username, firstname, lastname, email, password, phone_number, address, acc_type))
         conn.commit()
         user_id=cursor.lastrowid
-        if acc_type == 'resto':
+        if acc_type == 'restaurant':
             resto_in(user_id, username, firstname, lastname,email, phone_number, address)
         elif acc_type == 'contributor':
             contributor_in(user_id, username, firstname, lastname, email, phone_number, address)
@@ -841,6 +845,76 @@ def on_join(data):
 def uploaded_file(filename):
     return send_from_directory('uploads', filename)
 
+def update_food_and_restaurant_status():
+    connection = mysql.connector.connect(**db_config)
+    cursor = connection.cursor(dictionary=True)
+
+    try:
+        current_time = datetime.now()
+        # print("current time::", current_time)
+
+        cursor.execute("""SELECT food_id, updated_at, expiry_time, leftover_status FROM food WHERE leftover_status = 'Available'""")
+        food_items = cursor.fetchall()
+        expired_items = []
+
+        for item in food_items:
+            updated_at = item['updated_at']
+            expiry_duration = timedelta(hours=item['expiry_time'])
+            expiry_time = updated_at + expiry_duration
+
+            if expiry_time <= current_time:
+                expired_items.append(item['food_id'])
+
+        if expired_items:
+            format_strings = ', '.join(['%s'] * len(expired_items))
+            query = f"UPDATE food SET leftover_status = 'Not Available' WHERE food_id IN ({format_strings})"
+            cursor.execute(query, tuple(expired_items))
+            connection.commit()
+            print(f"[{datetime.now()}] Updated {len(expired_items)} food items to 'Not Available'")
+
+        cursor.execute("""SELECT restaurant_id, opening_time, closing_time, status FROM restaurant""")
+        restaurants = cursor.fetchall()
+        for restaurant in restaurants:
+            opening_time = restaurant['opening_time']
+            closing_time = restaurant['closing_time']
+            restaurant_id = restaurant['restaurant_id']
+
+            if isinstance(opening_time, timedelta):
+                opening_time = (datetime.min + opening_time).time()
+
+            if isinstance(closing_time, timedelta):
+                closing_time = (datetime.min + closing_time).time()
+
+            if opening_time <= current_time.time() <= closing_time:
+                if restaurant['status'] != 'Open':
+                    cursor.execute("UPDATE restaurant SET status = 'Open' WHERE restaurant_id = %s", (restaurant_id,))
+                    print(f"[{datetime.now()}] Restaurant ID {restaurant_id} status changed to 'Open'")
+            else:
+                if restaurant['status'] != 'Closed':
+                    cursor.execute("UPDATE restaurant SET status = 'Closed' WHERE restaurant_id = %s", (restaurant_id,))
+                    print(f"[{datetime.now()}] Restaurant ID {restaurant_id} status changed to 'Closed'")
+
+        connection.commit()
+
+    except Exception as e:
+        print(f"[{datetime.now()}] Error: {e}")
+        connection.rollback()
+    finally:
+        cursor.close()
+        connection.close()
+
+# schedule.every(1).hours.do(update_food_and_restaurant_status)
+def run_scheduler():
+    print("Run the schedule in a separate thread")
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+        
+schedule.every(1).minutes.do(update_food_and_restaurant_status)
+
 if __name__ == '__main__':
     # app.run(debug=True)
+    scheduler_thread = Thread(target=run_scheduler)
+    scheduler_thread.daemon = True
+    scheduler_thread.start()
     socketio.run(app, debug=True, port=5000)
