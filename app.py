@@ -51,14 +51,16 @@ def signup_user():
     phone_number = data.get('phone_number')
     address = data.get('address')
     acc_type = data.get('role')
+    security_question = data.get('securityQuestion')
+    security_answer = data.get('securityAnswer')
 
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
     
     try:
         cursor.execute(
-            "INSERT INTO admin (username, firstname, lastname, email, password, phone_number, address, acc_type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-            (username, firstname, lastname, email, password, phone_number, address, acc_type))
+            "INSERT INTO admin (username, firstname, lastname, email, password, phone_number, address, acc_type, security_question, security_answer) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (username, firstname, lastname, email, password, phone_number, address, acc_type, security_question, security_answer))
         conn.commit()
         user_id=cursor.lastrowid
         if acc_type == 'restaurant':
@@ -95,6 +97,94 @@ def customer_in(user_id, username, firstname, lastname, email, phone_number, add
     cursor.execute("INSERT INTO customer (user_id, username, firstname, lastname, email, phone_number, address) VALUES (%s, %s, %s, %s, %s, %s, %s)", (user_id, username, firstname, lastname, email, phone_number, address))
     conn.commit()
 
+@app.route('/api/getSecurityQuestion/<string:email>', methods=['GET'])
+def get_security_question(email):
+    try:
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor(dictionary=True)
+
+        query = "SELECT security_question FROM admin WHERE email = %s"
+        cursor.execute(query, (email,))
+        result = cursor.fetchone()
+
+        if result:
+            return jsonify({"securityQuestion": result['security_question']})
+        else:
+            return jsonify({"error": "No security question found for the given email"}), 404
+
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 400
+    
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/checkSecurityAnswer', methods=['POST'])
+def check_security_answer():
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        user_answer = data.get('answer')
+
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor(dictionary=True)
+
+        query = "SELECT security_question, security_answer FROM admin WHERE email = %s"
+        cursor.execute(query, (email,))
+        result = cursor.fetchone()
+
+        if result:
+            if result['security_answer'] == user_answer:
+                return jsonify({"match": True})
+            else:
+                return jsonify({"error": "Answer not matching"})
+        else:
+            return jsonify({"error": "No record found for the given email"}), 404
+
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 400
+    
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/updatePassword', methods=['POST'])
+def update_password():
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        new_password = data.get('password')
+
+        if not email or not new_password:
+            return jsonify({"error": "Email and password are required"}), 400
+        # hashed_password = generate_password_hash(new_password)
+        
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor(dictionary=True)
+
+        query = "SELECT password FROM admin WHERE email = %s"
+        cursor.execute(query, (email,))
+        result = cursor.fetchone()
+
+        if not result:
+            return jsonify({"error": "No record found for the given email"}), 404
+
+        current_password = result['password']
+        if new_password == current_password:
+            return jsonify({"error": "New password cannot be the same as the old password"}), 400
+
+        update_query = "UPDATE admin SET password = %s WHERE email = %s"
+        cursor.execute(update_query, (new_password, email))
+        conn.commit()
+
+        return jsonify({"message": "Password updated successfully"}), 200
+
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
+
+    finally:
+        cursor.close()
+        conn.close()
 
 ####Route to fetch user data
 @app.route('/api/community', methods=['GET'])
