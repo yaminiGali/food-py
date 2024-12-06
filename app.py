@@ -1,5 +1,6 @@
 import os
 import time
+import pytz
 import schedule
 import mysql.connector
 from flask import Flask, render_template, request, redirect, jsonify, send_from_directory
@@ -8,7 +9,9 @@ from werkzeug.utils import secure_filename
 from datetime import timedelta
 from flask_socketio import SocketIO, emit, join_room
 from threading import Thread
+from tzlocal import get_localzone
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo 
 
 app = Flask(__name__)
 CORS(app)
@@ -515,10 +518,16 @@ def get_food_by_iddd():
             query = """SELECT * FROM food WHERE contributor_id = %s"""
             cursor.execute(query, (contributor_id,))
         foodList = cursor.fetchall()
+        local_datetime = datetime.now().astimezone()
+        local_timezone = local_datetime.tzinfo
 
         for food in foodList:
             for key, value in food.items():
-                if isinstance(value, timedelta):
+                if isinstance(value, datetime):
+                    if value.tzinfo is None:
+                        value = value.replace(tzinfo=local_timezone)
+                    food[key] = value.strftime('%Y-%m-%d %H:%M:%S')
+                elif isinstance(value, timedelta):
                     food[key] = str(value)
 
         if  foodList:           
