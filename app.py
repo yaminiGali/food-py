@@ -100,6 +100,80 @@ def customer_in(user_id, username, firstname, lastname, email, phone_number, add
     cursor.execute("INSERT INTO customer (user_id, username, firstname, lastname, email, phone_number, address) VALUES (%s, %s, %s, %s, %s, %s, %s)", (user_id, username, firstname, lastname, email, phone_number, address))
     conn.commit()
 
+@app.route('/api/updatecontributorProfile/<int:user_id>', methods=['PUT'])
+def update_contributor_profile(user_id):
+    data = request.json
+    address = data.get('address')
+    email = data.get('email')
+    phone_number = data.get('phone_number')
+    firstname = data.get('firstname')
+    lastname = data.get('lastname')
+
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True,buffered=True)
+
+    try:
+        sql = """UPDATE admin SET address = %s, email = %s, phone_number = %s, firstname = %s, lastname = %s WHERE user_id = %s"""
+        cursor.execute(sql, (address, email, phone_number, firstname, lastname, user_id))
+        conn.commit()
+        query = """UPDATE contributor SET address = %s, email = %s, phone_number = %s, firstname = %s, lastname = %s WHERE user_id = %s"""
+        cursor.execute(query, (address, email, phone_number, firstname, lastname, user_id))
+        conn.commit()
+        return jsonify({'message': 'Contributor Profile updated successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/updateRestaurantOwnerProfile/<int:user_id>', methods=['PUT'])
+def update_resto_profile(user_id):
+    data = request.json
+    address = data.get('address')
+    email = data.get('email')
+    phone_number = data.get('phone_number')
+    firstname = data.get('firstname')
+    lastname = data.get('lastname')
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True,buffered=True)
+    try:
+        sql = """UPDATE admin SET address = %s, email = %s, phone_number = %s, firstname = %s, lastname = %s WHERE user_id = %s"""
+        cursor.execute(sql, (address, email, phone_number, firstname, lastname, user_id))
+        conn.commit()
+        query = """UPDATE restaurant_owner SET address = %s, email = %s, phone_number = %s, firstname = %s, lastname = %s WHERE user_id = %s"""
+        cursor.execute(query, (address, email, phone_number, firstname, lastname, user_id))
+        conn.commit()
+        return jsonify({'message': 'Restaurant Owner Profile updated successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/updateCustomerProfile/<int:user_id>', methods=['PUT'])
+def update_profile(user_id):
+    data = request.json
+    address = data.get('address')
+    email = data.get('email')
+    phone_number = data.get('phone_number')
+    firstname = data.get('firstname')
+    lastname = data.get('lastname')
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True,buffered=True)
+    try:
+        sql = """UPDATE admin SET address = %s, email = %s, phone_number = %s, firstname = %s, lastname = %s WHERE user_id = %s"""
+        cursor.execute(sql, (address, email, phone_number, firstname, lastname, user_id))
+        conn.commit()
+        query = """UPDATE customer SET address = %s, email = %s, phone_number = %s, firstname = %s, lastname = %s WHERE user_id = %s"""
+        cursor.execute(query, (address, email, phone_number, firstname, lastname, user_id))
+        conn.commit()
+        return jsonify({'message': 'Customer Profile updated successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
 @app.route('/api/getSecurityQuestion/<string:email>', methods=['GET'])
 def get_security_question(email):
     try:
