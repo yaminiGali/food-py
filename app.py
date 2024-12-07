@@ -36,7 +36,7 @@ CORS(app, resources={r"/uploads/": {"origins": "*"}})
 # MySQL Database connection parameters
 db_config = {
     'user': 'root',      # Update with your MySQL username
-    'password': 'your_password',  # Update with your MySQL password
+    'password': 'bhaveshnt@21',  # Update with your MySQL password
     'host': 'localhost',
     'database': 'food'   # Ensure this database exists in MySQL
 }
@@ -362,6 +362,45 @@ def delete_restaurant(restaurant_id):
         cursor.close()
         conn.close()
 
+@app.route('/api/updateRestaurant/<int:restaurant_id>', methods=['PUT'])
+def update_restaurant(restaurant_id):
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor()
+
+    filename = None
+    if 'restaurant_logo' in request.files:
+        file = request.files['restaurant_logo']
+        if file and file.filename != '':
+            filename = secure_filename(file.filename)
+            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+
+    data = request.form
+    restaurant_name = data.get('restaurant_name')
+    opening_time = data.get('opening_time')
+    closing_time = data.get('closing_time')
+    phone_number = data.get('phone_number')
+    address = data.get('address')
+    status = data.get('status')
+
+    if filename:
+        restaurant_logo = f'http://127.0.0.1:5000/uploads/{filename}'
+    else:
+        filename = data.get('restaurant_logo')
+
+    try:
+        update_query = """UPDATE restaurant SET restaurant_name = %s, opening_time = %s, closing_time = %s, phone_number = %s, address = %s, status = %s, restaurant_logo = %s WHERE restaurant_id = %s"""
+        values = (restaurant_name, opening_time, closing_time, phone_number, address, status, filename, restaurant_id)
+        cursor.execute(update_query, values)
+        conn.commit()
+
+        return jsonify({"message": "Restaurant details updated successfully!"}), 200
+    except mysql.connector.Error as err:
+        print("Error:", err)
+        conn.rollback()
+        return jsonify({"error": str(err)}), 500
+    finally:
+        cursor.close()
+        conn.close()
 
 ###Route to fetch data from restaurant_owner based on user_id
 @app.route('/api/resto/<int:user_id>', methods=['GET'])
