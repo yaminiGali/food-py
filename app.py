@@ -3,6 +3,7 @@ import time
 import pytz
 import schedule
 import mysql.connector
+from mysql.connector import Error, errorcode
 from flask import Flask, render_template, request, redirect, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename 
@@ -36,7 +37,7 @@ CORS(app, resources={r"/uploads/": {"origins": "*"}})
 # MySQL Database connection parameters
 db_config = {
     'user': 'root',      # Update with your MySQL username
-    'password': 'bhaveshnt@21',  # Update with your MySQL password
+    'password': 'your_password',  # Update with your MySQL password
     'host': 'localhost',
     'database': 'food'   # Ensure this database exists in MySQL
 }
@@ -72,10 +73,12 @@ def signup_user():
             contributor_in(user_id, username, firstname, lastname, email, phone_number, address)
         elif acc_type == 'customer':
             customer_in(user_id, username, firstname, lastname, email, phone_number, address)
-        return jsonify({"message": "User registered successfully!"}), 201
+        return jsonify({"message": "User registered successfully!", "status": "success"}), 201
 
     except mysql.connector.Error as err:
-        return jsonify({"error": str(err)}), 400
+        if err.errno == errorcode.ER_DUP_ENTRY:
+            return jsonify({"message": "Email already exists!", "status": "error"}), 409
+        return jsonify({"message": str(err), "status": "error"}), 400
     
     finally:
         cursor.close()
